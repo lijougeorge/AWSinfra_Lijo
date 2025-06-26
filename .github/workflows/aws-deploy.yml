@@ -18,7 +18,7 @@ on:
       region:
         description: 'AWS Region (e.g., eu-west-1)'
         required: true
-        default: 'us-eat-1
+        default: 'us-eat-1'
       environment:
         description: 'Environment to deploy to (dev, uat, prod)'
         required: true
