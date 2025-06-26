@@ -1,4 +1,4 @@
-name: Eviden | Terraform Deployment
+name: Lijo | Terraform Deployment
 
 on:
   workflow_dispatch:
