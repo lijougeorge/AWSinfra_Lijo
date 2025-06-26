@@ -1,0 +1,97 @@
+name: Eviden | Terraform Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to perform (plan, apply, destroy)'
+        required: true
+        default: 'plan'
+      module:
+        description: 'Module to deploy (e.g., eks, all)'
+        required: true
+        default: 'eks'
+      account_id:
+        description: 'AWS Account ID (e.g., 123456789012)'
+        required: true
+        default: '232247293372'
+      region:
+        description: 'AWS Region (e.g., eu-west-1)'
+        required: true
+        default: 'eu-west-1'
+      environment:
+        description: 'Environment to deploy to (dev, uat, prod)'
+        required: true
+        default: 'dev'
+
+jobs:
+  terraform-validate:
+    name: Validate Terraform Configs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq unzip
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install terraform -y
+          terraform version
+
+      - name: Run Terraform Format Check
+        run: terraform fmt --recursive
+
+      - name: Run Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  deploy-dev:
+    name: Deploy to Dev
+    needs: terraform-validate
+    if: ${{ github.event.inputs.environment == 'dev' }}
+    uses: ./.github/workflows/terraform-deploy.yml
+    with:
+      environment: dev
+      action: ${{ github.event.inputs.action }}
+      module: ${{ github.event.inputs.module }}
+      account_id: ${{ github.event.inputs.account_id }}
+      region: ${{ github.event.inputs.region }}
+
+  deploy-uat:
+    name: Deploy to UAT
+    needs: terraform-validate
+    if: ${{ github.event.inputs.environment == 'uat' }}
+    uses: ./.github/workflows/terraform-deploy.yml
+    with:
+      environment: uat
+      action: ${{ github.event.inputs.action }}
+      module: ${{ github.event.inputs.module }}
+      account_id: ${{ github.event.inputs.account_id }}
+      region: ${{ github.event.inputs.region }}
+
+  deploy-prod:
+    name: Deploy to Prod
+    needs: terraform-validate
+    if: ${{ github.event.inputs.environment == 'prod' }}
+    uses: ./.github/workflows/terraform-deploy.yml
+    with:
+      environment: prod
+      action: ${{ github.event.inputs.action }}
+      module: ${{ github.event.inputs.module }}
+      account_id: ${{ github.event.inputs.account_id }}
+      region: ${{ github.event.inputs.region }}
+
+  notify-success:
+    name: Notify Success
+    needs: [deploy-dev, deploy-uat, deploy-prod]
+    if: |
+      success() && github.event.inputs.action != 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - name: All Done
+        run: echo "Terraform deployment to ${{ github.event.inputs.environment }} completed successfully!"

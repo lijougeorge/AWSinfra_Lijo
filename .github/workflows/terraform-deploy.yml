@@ -1,0 +1,90 @@
+name: Eviden | Terraform Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      action:
+        required: false
+        type: string
+        default: 'plan'
+      module:
+        required: false
+        type: string
+        default: 'eks'
+      account_id:
+        required: false
+        type: string
+        default: '232247293372'
+      region:
+        required: false
+        type: string
+        default: 'eu-west-1'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Terraform and Tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq unzip
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+          sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+          sudo apt-get update && sudo apt-get install terraform -y
+          terraform version
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v3
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: terraform-${{ runner.os }}-${{ hashFiles('**/*.tf') }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.account_id }}:role/Eviden-DSS-Automation
+          aws-region: ${{ inputs.region }}
+
+      - name: Verify AWS Authentication
+        run: aws sts get-caller-identity
+
+      - name: Read terraform.tfvars.json
+        run: |
+          for key in $(jq -r 'keys[]' terraform.tfvars.json); do
+            value=$(jq -c -r ".$key" terraform.tfvars.json)
+            echo "TF_VAR_$key=$value" >> $GITHUB_ENV
+          done
+
+      - name: Run Terraform Script
+        run: |
+          chmod +x script.sh
+          echo "Started at $(date)" >> deployment.log
+          ./script.sh ${{ inputs.action }} ${{ inputs.module }} ${{ inputs.account_id }} ${{ inputs.region }} ${{ inputs.environment }}
+
+      - name: Upload Plan Artifact (if applicable)
+        if: ${{ inputs.action == 'plan' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.run_number }}-${{ inputs.environment }}
+          path: |
+            tfplan
+            tfplan.txt
+            tfplan.json
+            tfplan.csv
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo ":x: Deployment to ${{ inputs.environment }} failed!"
